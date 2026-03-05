@@ -2,6 +2,8 @@
 
 A Skeddy-like Telegram reminder scheduler built with Nuxt 3. Create reminders via a web dashboard and receive them as Telegram messages at the scheduled time. Supports recurring reminders (daily, weekly, monthly) and quick-pick time presets.
 
+![Dashboard screenshot](./public/image.png)
+
 ---
 
 ## Features
