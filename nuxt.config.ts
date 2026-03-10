@@ -21,7 +21,7 @@ export default defineNuxtConfig({
 
   nitro: {
     externals: {
-      external: ['better-sqlite3', 'node-cron', 'node-telegram-bot-api'],
+      external: ['better-sqlite3', 'mysql2', 'node-cron', 'node-telegram-bot-api'],
     },
   },
 

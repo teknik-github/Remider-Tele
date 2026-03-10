@@ -1,7 +1,5 @@
 import cron from 'node-cron'
-import { eq, and, lte } from 'drizzle-orm'
-import { getDb } from '../db/index'
-import { reminders } from '../db/schema'
+import { getDueReminders, updateReminderSchedule } from '../db/ops'
 import { sendTelegramMessage, formatReminderMessage } from './telegram'
 import dayjs from 'dayjs'
 
@@ -16,19 +14,8 @@ function computeNextScheduledAt(current: string, recurrence: string): string {
 }
 
 export async function processDueReminders(): Promise<void> {
-  const db = getDb()
-  const now = new Date().toISOString()
-
   try {
-    const dueReminders = await db
-      .select()
-      .from(reminders)
-      .where(
-        and(
-          eq(reminders.status, 'pending'),
-          lte(reminders.scheduledAt, now),
-        ),
-      )
+    const dueReminders = await getDueReminders()
 
     if (dueReminders.length === 0) return
 
@@ -40,17 +27,11 @@ export async function processDueReminders(): Promise<void> {
 
       if (success) {
         if (reminder.recurrence === 'once') {
-          await db
-            .update(reminders)
-            .set({ status: 'sent', updatedAt: new Date().toISOString() })
-            .where(eq(reminders.id, reminder.id))
+          await updateReminderSchedule(reminder.id, { status: 'sent' })
         }
         else {
           const nextAt = computeNextScheduledAt(reminder.scheduledAt, reminder.recurrence)
-          await db
-            .update(reminders)
-            .set({ scheduledAt: nextAt, updatedAt: new Date().toISOString() })
-            .where(eq(reminders.id, reminder.id))
+          await updateReminderSchedule(reminder.id, { scheduledAt: nextAt })
           console.log(`[Scheduler] Recurring #${reminder.id} rescheduled to ${nextAt}`)
         }
       }

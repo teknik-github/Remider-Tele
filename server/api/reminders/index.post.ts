@@ -1,5 +1,4 @@
-import { getDb } from '../../db/index'
-import { reminders } from '../../db/schema'
+import { createReminder } from '../../db/ops'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -16,19 +15,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'chatId is required (or set TELEGRAM_DEFAULT_CHAT_ID)' })
   }
 
-  const db = getDb()
-  const result = await db
-    .insert(reminders)
-    .values({
-      title: String(body.title).trim(),
-      message: String(body.message).trim(),
-      chatId,
-      scheduledAt: new Date(body.scheduledAt).toISOString(),
-      recurrence: body.recurrence || 'once',
-      status: 'pending',
-      notes: body.notes ? String(body.notes).trim() : null,
-    })
-    .returning()
-
-  return result[0]
+  return createReminder({
+    title: String(body.title).trim(),
+    message: String(body.message).trim(),
+    chatId,
+    scheduledAt: new Date(body.scheduledAt).toISOString(),
+    recurrence: body.recurrence || 'once',
+    status: 'pending',
+    notes: body.notes ? String(body.notes).trim() : null,
+  })
 })
