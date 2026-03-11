@@ -12,11 +12,14 @@ export function getDbType(): DbType {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _db: any = null
+let _initPromise: Promise<void> | null = null
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getDb(): any {
-  if (!_db) throw new Error('[DB] Database not initialized. Ensure server/plugins/01.db.ts ran first.')
-  return _db
+export async function getDb(): Promise<any> {
+  if (_db) return _db
+  if (!_initPromise) _initPromise = initDb()
+  await _initPromise
+  return _db!
 }
 
 export async function initDb(): Promise<void> {

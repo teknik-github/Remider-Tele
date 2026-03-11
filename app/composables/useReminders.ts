@@ -1,5 +1,22 @@
 import type { Reminder, NewReminder } from '../../server/db/schema'
 
+function is401(err: unknown): boolean {
+  const e = err as { status?: number; statusCode?: number } | null
+  return e?.status === 401 || e?.statusCode === 401
+}
+
+async function authFetch<T>(url: string, opts?: Parameters<typeof $fetch>[1]): Promise<T> {
+  try {
+    return await $fetch<T>(url, opts)
+  }
+  catch (err: unknown) {
+    if (is401(err)) {
+      await navigateTo('/login')
+    }
+    throw err
+  }
+}
+
 export function useReminders() {
   const remindersList = ref<Reminder[]>([])
   const pending = ref(false)
@@ -9,10 +26,12 @@ export function useReminders() {
     pending.value = true
     error.value = null
     try {
-      remindersList.value = await $fetch<Reminder[]>('/api/reminders')
+      remindersList.value = await authFetch<Reminder[]>('/api/reminders')
     }
     catch (err: unknown) {
-      error.value = (err as { statusMessage?: string })?.statusMessage || 'Failed to load reminders'
+      if (!is401(err)) {
+        error.value = (err as { statusMessage?: string })?.statusMessage || 'Failed to load reminders'
+      }
     }
     finally {
       pending.value = false
@@ -20,7 +39,7 @@ export function useReminders() {
   }
 
   async function createReminder(data: Omit<NewReminder, 'id' | 'createdAt' | 'updatedAt'>) {
-    const result = await $fetch<Reminder>('/api/reminders', {
+    const result = await authFetch<Reminder>('/api/reminders', {
       method: 'POST',
       body: data,
     })
@@ -29,7 +48,7 @@ export function useReminders() {
   }
 
   async function updateReminder(id: number, data: Partial<NewReminder>) {
-    const result = await $fetch<Reminder>(`/api/reminders/${id}`, {
+    const result = await authFetch<Reminder>(`/api/reminders/${id}`, {
       method: 'PUT',
       body: data,
     })
@@ -39,7 +58,7 @@ export function useReminders() {
   }
 
   async function deleteReminder(id: number) {
-    await $fetch(`/api/reminders/${id}`, { method: 'DELETE' })
+    await authFetch(`/api/reminders/${id}`, { method: 'DELETE' })
     remindersList.value = remindersList.value.filter(r => r.id !== id)
   }
 

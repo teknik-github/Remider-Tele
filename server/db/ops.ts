@@ -9,7 +9,7 @@ function getTable() {
 }
 
 export async function listReminders(statusFilter?: string): Promise<Reminder[]> {
-  const db = getDb()
+  const db = await getDb()
   const t = getTable()
 
   if (statusFilter && ['pending', 'sent', 'cancelled'].includes(statusFilter)) {
@@ -24,14 +24,14 @@ export async function listReminders(statusFilter?: string): Promise<Reminder[]> 
 }
 
 export async function getReminder(id: number): Promise<Reminder | null> {
-  const db = getDb()
+  const db = await getDb()
   const t = getTable()
   const result = await db.select().from(t).where(eq(t.id, id)).limit(1)
   return (result[0] as Reminder) ?? null
 }
 
 export async function createReminder(data: NewReminder): Promise<Reminder> {
-  const db = getDb()
+  const db = await getDb()
   const t = getTable()
   const type = getDbType()
   const now = new Date().toISOString()
@@ -61,7 +61,7 @@ export async function createReminder(data: NewReminder): Promise<Reminder> {
 }
 
 export async function updateReminder(id: number, data: Record<string, unknown>): Promise<Reminder | null> {
-  const db = getDb()
+  const db = await getDb()
   const t = getTable()
   const type = getDbType()
 
@@ -78,7 +78,7 @@ export async function updateReminder(id: number, data: Record<string, unknown>):
 }
 
 export async function deleteReminder(id: number): Promise<Reminder | null> {
-  const db = getDb()
+  const db = await getDb()
   const t = getTable()
   const type = getDbType()
 
@@ -96,7 +96,7 @@ export async function deleteReminder(id: number): Promise<Reminder | null> {
 }
 
 export async function getDueReminders(): Promise<Reminder[]> {
-  const db = getDb()
+  const db = await getDb()
   const t = getTable()
   const now = new Date().toISOString()
   return (await db
@@ -109,7 +109,7 @@ export async function updateReminderSchedule(
   id: number,
   updates: { status?: ReminderStatus; scheduledAt?: string },
 ): Promise<void> {
-  const db = getDb()
+  const db = await getDb()
   const t = getTable()
   await db.update(t).set({ ...updates, updatedAt: new Date().toISOString() }).where(eq(t.id, id))
 }
