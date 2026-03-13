@@ -51,5 +51,5 @@ export function formatReminderMessage(reminder: {
   recurrence: string
 }): string {
   const recurrenceLabel = reminder.recurrence === 'once' ? '' : ` _(${reminder.recurrence})_`
-  return `🔔 *${reminder.title}*${recurrenceLabel}\n\n${reminder.message}`
+  return `*${reminder.title}*${recurrenceLabel}\n\n${reminder.message}`
 }

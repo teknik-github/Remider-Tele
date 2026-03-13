@@ -52,11 +52,10 @@
           <span class="text-gray-400 font-normal text-sm ml-1">({{ filteredReminders.length }})</span>
         </h2>
         <button
-          @click="fetchAll"
-          :disabled="pending"
-          class="text-xs text-gray-400 hover:text-blue-500 transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-50 disabled:opacity-50"
+          @click="fetchAll(true)"
+          class="text-xs text-gray-400 hover:text-blue-500 transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-50"
         >
-          {{ pending ? 'Loading...' : '↻ Refresh' }}
+          ↻ Refresh
         </button>
       </div>
 
@@ -168,12 +167,20 @@ async function handleLogout() {
   await navigateTo('/login')
 }
 
-let pollInterval: ReturnType<typeof setInterval>
+let source: EventSource | null = null
 
-onMounted(() => {
-  fetchAll()
-  pollInterval = setInterval(() => fetchAll(), 30_000)
+onMounted(async () => {
+  await fetchAll()
+
+  source = new EventSource('/api/reminders/stream')
+  // Re-fetch on (re)connect to catch any events missed during reconnect
+  source.onopen = () => fetchAll(true)
+  // Re-fetch silently whenever the server pushes a change notification
+  source.addEventListener('message', () => fetchAll(true))
 })
 
-onUnmounted(() => clearInterval(pollInterval))
+onUnmounted(() => {
+  source?.close()
+  source = null
+})
 </script>

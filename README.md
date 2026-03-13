@@ -1,6 +1,6 @@
 # Reminder-Tele
 
-A Skeddy-like Telegram reminder scheduler built with Nuxt 3. Create reminders via a web dashboard and receive them as Telegram messages at the scheduled time. Supports recurring reminders (daily, weekly, monthly) and quick-pick time presets.
+A Skeddy-like Telegram reminder scheduler built with Nuxt 4. Create reminders via a web dashboard and receive them as Telegram messages at the scheduled time. Supports recurring reminders (daily, weekly, monthly) and quick-pick time presets.
 
 ![Dashboard screenshot](./public/image.png)
 
@@ -15,7 +15,7 @@ A Skeddy-like Telegram reminder scheduler built with Nuxt 3. Create reminders vi
 - **Magic link via Telegram** — send `/web` to your bot to get a one-time login URL (valid 10 min)
 - **Magic link via API** — `POST /api/generate` with an API key returns a one-time login URL (for automation/Postman)
 - **Edit reminders** — edit any reminder; editing a sent/cancelled reminder resets it to pending and reschedules it
-- **Auto-refresh** — dashboard polls every 30 seconds so status updates without manual refresh
+- **Real-time sync** — dashboard updates instantly via Server-Sent Events (SSE); no polling, no manual refresh needed
 - **Telegram delivery** — sends messages via Telegram Bot API every minute via cron
 - **Multi-database** — SQLite (default), MySQL, or MariaDB; selected via `DB_TYPE` env var
 - **Auto-migration** — database schema is applied automatically on first boot
@@ -26,7 +26,7 @@ A Skeddy-like Telegram reminder scheduler built with Nuxt 3. Create reminders vi
 
 | Layer | Technology |
 |---|---|
-| Framework | Nuxt 3 (full-stack, Nitro server) |
+| Framework | Nuxt 4 (full-stack, Nitro server, `app/` directory layout) |
 | Database | SQLite / MySQL / MariaDB via Drizzle ORM |
 | Scheduler | node-cron (every minute) |
 | Messaging | Telegram Bot API (node-telegram-bot-api) |
@@ -94,12 +94,39 @@ The database is created and migrated automatically on first run.
 
 ## Production
 
-Build and run:
+### Option A — Docker (recommended)
+
+```bash
+cp .env.example .env   # fill in your credentials
+
+docker compose up -d   # build image and start in background
+docker compose logs -f # tail logs
+docker compose down    # stop (data volume is preserved)
+```
+
+The SQLite database is stored in a named Docker volume (`db_data`) so it survives restarts and `docker compose down`. To wipe the database: `docker compose down -v`.
+
+### Option B — Build from source
 
 ```bash
 npm run build
 node .output/server/index.mjs
 ```
+
+### nginx / reverse proxy
+
+The SSE stream at `/api/reminders/stream` requires response buffering to be disabled. Add these directives to your location block:
+
+```nginx
+location / {
+    proxy_pass http://localhost:3000;
+    proxy_buffering off;
+    proxy_read_timeout 3600;
+    # ... other proxy settings
+}
+```
+
+Without `proxy_buffering off`, nginx buffers the response and the client never receives SSE events.
 
 ---
 
@@ -139,8 +166,7 @@ Remider-Tele/
 │   ├── app.vue                    # Root component
 │   ├── pages/
 │   │   ├── index.vue              # Main dashboard
-│   │   ├── login.vue              # Login page
-│   │   └── magic.vue              # Magic link handler (instant redirect)
+│   │   └── login.vue              # Login page
 │   ├── middleware/
 │   │   └── auth.global.ts         # Redirects to /login if no valid session
 │   ├── components/
@@ -157,6 +183,8 @@ Remider-Tele/
 │   │   └── telegramCommands.ts    # Polling bot — handles /web command
 │   ├── middleware/
 │   │   └── auth.ts                # Protects /api/reminders/* routes (401 if no session)
+│   ├── routes/
+│   │   └── magic.get.ts           # GET /magic?token= — validates token, sets cookie in 200 document response, redirects to /
 │   ├── db/
 │   │   ├── schema.ts              # Shared TypeScript types
 │   │   ├── schema.sqlite.ts       # SQLite table definition
@@ -166,18 +194,27 @@ Remider-Tele/
 │   │   └── migrations/            # SQLite migration files
 │   ├── api/
 │   │   ├── generate.post.ts       # POST /api/generate — API key → magic URL
-│   │   ├── reminders/             # REST endpoints (CRUD)
+│   │   ├── reminders/
+│   │   │   ├── index.get.ts       # GET  /api/reminders
+│   │   │   ├── index.post.ts      # POST /api/reminders
+│   │   │   ├── [id].get.ts        # GET  /api/reminders/:id
+│   │   │   ├── [id].put.ts        # PUT  /api/reminders/:id
+│   │   │   ├── [id].delete.ts     # DELETE /api/reminders/:id
+│   │   │   └── stream.get.ts      # GET  /api/reminders/stream — SSE change feed
 │   │   └── auth/
 │   │       ├── login.post.ts      # Password login → sets session cookie
 │   │       ├── logout.post.ts     # Clears session cookie
-│   │       ├── check.get.ts       # Verify session (used by frontend middleware)
-│   │       └── magic.get.ts       # One-time token → sets cookie → redirect to /
+│   │       └── check.get.ts       # Verify session (used by frontend middleware)
 │   └── utils/
 │       ├── telegram.ts            # Send-only bot singleton + sendMessage
 │       ├── scheduler.ts           # Cron logic + recurrence handling
 │       ├── auth.ts                # Session token helpers (HMAC, cookie helpers)
-│       └── magicLinks.ts          # In-memory one-time token store
+│       ├── magicLinks.ts          # In-memory one-time token store
+│       └── reminderBus.ts         # Node.js EventEmitter — broadcasts DB changes to SSE clients
 ├── data/reminders.db              # SQLite database (auto-created, gitignored)
+├── Dockerfile                     # Multi-stage Docker build
+├── docker-compose.yml             # Compose file (app + named volume)
+├── .dockerignore                  # Excludes node_modules, .output, data, .env
 ├── .env                           # Your credentials (gitignored)
 └── .env.example                   # Template
 ```
@@ -203,7 +240,18 @@ Remider-Tele/
 | `POST` | `/api/auth/login` | Submit password → set session cookie |
 | `POST` | `/api/auth/logout` | Clear session cookie |
 | `GET` | `/api/auth/check` | Returns `{ ok: true/false }` |
-| `GET` | `/api/auth/magic?token=` | Verify one-time token → set cookie → redirect to `/` |
+
+### Magic link
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/magic?token=` | Validate one-time token → set `Set-Cookie` in the 200 document response → redirect to `/` |
+
+### SSE
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/reminders/stream` | Server-Sent Events stream — pushes `change` on any reminder mutation |
 
 ### Generate (API key protected)
 
@@ -275,7 +323,8 @@ openssl rand -hex 32
 | **Edit** | All reminders | Opens pre-filled form; saving a sent/cancelled reminder resets it to `pending` |
 | **Cancel** | Pending only | Sets status to `cancelled` immediately |
 | **Delete** | All reminders | Permanently removes the reminder |
-| **Auto-refresh** | Always | Dashboard re-fetches data every 30 seconds automatically |
+| **Real-time sync** | Always | Dashboard re-fetches silently via SSE whenever any reminder changes |
+| **Manual refresh** | Always | ↻ Refresh button re-fetches silently without any loading indicator |
 
 ---
 
@@ -299,7 +348,8 @@ openssl rand -hex 32
 Magic link flow:
 1. Send `/web` to the bot in Telegram
 2. Bot replies with a one-time URL (no link preview shown)
-3. Tap the link → redirected instantly to the dashboard (session cookie is set automatically)
+3. Tap the link → Nitro server route validates the token and sets `Set-Cookie` in the `200` HTML document response (same response the browser receives on navigation — never stripped by proxies)
+4. Browser auto-redirects to the dashboard via inline JS + `<meta http-equiv="refresh">` fallback
 
 Magic links expire after **10 minutes** and are **single-use**. Requires `APP_URL` to be set in `.env`.
 
@@ -327,3 +377,44 @@ Magic links expire after **10 minutes** and are **single-use**. Requires `APP_UR
 | Secure cookie flag | Set automatically when `NODE_ENV=production` |
 | `/web` restriction | Bot only responds to the configured `TELEGRAM_DEFAULT_CHAT_ID` |
 | Magic link safety | Tokens are single-use and expire after 10 minutes |
+
+---
+
+## Changelog
+
+### v1.5.0 — Docker support
+- Added `Dockerfile` — multi-stage build (Node 22 Alpine); stage 1 compiles the app, stage 2 ships only `.output/`
+- Added `docker-compose.yml` — single-service compose with named volume for SQLite persistence
+- Added `.dockerignore` — excludes `node_modules`, `.output`, `data/`, `.env`
+
+### v1.4.0 — Server-route magic link (proxy-proof cookie)
+- Replaced `app/pages/magic.vue` + AJAX `/api/auth/consume` with a pure Nitro server route (`server/routes/magic.get.ts`)
+- The route validates the token, sets `Set-Cookie` in the **200 HTML document response**, then serves a JS/meta-refresh redirect to `/`
+- Cookie now rides in the main page-load response — nginx/Kubernetes proxies never strip cookies from document responses
+- Eliminates remaining failure mode where proxies stripped `Set-Cookie` from AJAX 200 responses
+
+### v1.3.0 — Real-time sync via SSE
+- Replaced 30-second polling with Server-Sent Events (`/api/reminders/stream`)
+- Dashboard updates instantly on any create / update / delete / scheduler fire
+- Added `server/utils/reminderBus.ts` — module-level EventEmitter shared across all server ops
+- All DB mutations in `server/db/ops.ts` emit `'change'` to connected SSE clients
+- Manual ↻ Refresh is now silent (no loading spinner or disabled state)
+
+### v1.2.0 — Proxy-safe magic link
+- Added `POST /api/auth/consume` endpoint — returns `200 + Set-Cookie` instead of a `302` redirect so cookies are never stripped by nginx or Kubernetes ingress
+- Updated `app/pages/magic.vue` to use an inline `fetch` POST for immediate execution (fires before Vue bundle loads), with `onMounted` as a CSP fallback
+- Fixed blank-page issue when accessing magic links through a reverse proxy
+
+### v1.1.0 — Silent refresh & auth hardening
+- `fetchAll(silent)` parameter — skips `pending` state when `true` so background refreshes are invisible
+- `authFetch` wrapper in `useReminders.ts` redirects to `/login` on any `401` response
+- Multi-database support: SQLite (default), MySQL, MariaDB via `DB_TYPE` env var
+- Brute-force protection: 5 failed logins → 15-minute IP lockout
+
+### v1.0.0 — Initial release
+- Web dashboard: create, view, edit, cancel, delete reminders
+- Telegram delivery via cron (every minute) with recurrence support (once / daily / weekly / monthly)
+- Password-protected dashboard with HMAC-SHA256 session tokens
+- Magic link login via `/web` Telegram command
+- Magic link via API (`POST /api/generate`) for automation
+- SQLite with Drizzle ORM and auto-migration

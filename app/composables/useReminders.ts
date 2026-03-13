@@ -22,8 +22,8 @@ export function useReminders() {
   const pending = ref(false)
   const error = ref<string | null>(null)
 
-  async function fetchAll() {
-    pending.value = true
+  async function fetchAll(silent = false) {
+    if (!silent) pending.value = true
     error.value = null
     try {
       remindersList.value = await authFetch<Reminder[]>('/api/reminders')
@@ -34,7 +34,7 @@ export function useReminders() {
       }
     }
     finally {
-      pending.value = false
+      if (!silent) pending.value = false
     }
   }
 
